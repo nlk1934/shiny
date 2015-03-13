@@ -1,0 +1,165 @@
+
+_____________________________________________
+
+_____________________________________________
+
+**Short Introduction**   
+----------------------
+This  **Shiny Application** is inspired by the Coursera course of [**Statistical Inference** by *Brian Caffo*, from *Johns Hopkins University*](https://class.coursera.org/statinference-010). 
+
+In the project assignment of this course, we are to investigate the exponential distribution in R and compare it with the Central Limit Theorem. In our shiny show,  we will expend to other types of distributions, such as Normal, Binomial, and Poisson. And the population size, sample size, and number of sampling are also configurable.
+
+**A bit of Theory**  
+-------------------
+The [**central limit theorem (CLT)**](http://en.wikipedia.org/wiki/Central_limit_theorem) states that, given certain conditions, the arithmetic mean of a sufficiently large number of iterates of independent random variables, each with a well-defined expected value and well-defined variance, will be approximately normally distributed, regardless of the underlying distribution. 
+
+The **standard error** of the mean (SEM) is the standard deviation of the sample-mean's estimate of a population mean. (It can also be viewed as the standard deviation of the error in the sample mean with respect to the true mean, since the sample mean is an unbiased estimator.) SEM is usually estimated by the sample estimate of the population standard deviation (sample standard deviation) divided by the square root of the sample size (assuming statistical independence of the values in the sample):
+
+**$\text{SE}_\bar{x}\ = \frac{s}{\sqrt{n}}$ **  
+where
+
+s is the sample standard deviation (i.e., the sample-based estimate of the standard deviation of the population), and
+n is the size (number of observations) of the sample.
+
+**How to Use this Application**   
+-------------------
+1. You need to set the type of distribution at the radio buttons area.
+2. Then, move the sliders to set the population size, default population size is 5000.
+3. The number of simulating and sample size is also changeable.
+
+The histogram and mean of the population is shown at the right area. Select the tab to see correspondent simulation distribution and its comparative to theoretical normal distribution.
+
+**Under the Hood**  
+-------------------
+If you are curious on this application, the codes are as follows:
+
+**ui.R**  
+
+```{r, eval=FALSE}
+#ui.R
+library(shiny)
+
+# Define UI for random distribution application 
+shinyUI(fluidPage(
+  
+  # Application title
+  titlePanel("Central Limit Theory Simulation"),
+  
+  # Sidebar with controls to select the random distribution type
+  # and number of observations to generate. Note the use of the
+  # br() element to introduce extra vertical spacing
+  sidebarLayout(
+    sidebarPanel(
+      radioButtons("dist", "Distribution type:",
+                   c("Normal" = "norm",
+                     "Poisson" = "pois",
+                     "Exponential" = "exp",
+                     "Fair coin" = "binof",
+                     "unfair coin" = "binou")),
+      br(),
+      
+      sliderInput("popnum", 
+                  "Number of population:", 
+                  value = 5000,
+                  min = 1000, 
+                  max = 20000),
+      sliderInput("sampnum", 
+                  "Number of samples:", 
+                  value = 1000,
+                  min = 10, 
+                  max = 2000),
+      sliderInput("sampsize", 
+                  "size of sample:", 
+                  value = 50,
+                  min = 10, 
+                  max = 100)
+    ),
+    
+    # Show a tabset that includes a plot, summary, and table view
+    # of the generated distribution
+    mainPanel(
+      tabsetPanel(type = "tabs", 
+                  tabPanel("population", plotOutput("plot1")), 
+                  tabPanel("sampling", plotOutput("plot2")), 
+                  tabPanel("About", includeMarkdown("about.rmd"))
+      )
+    )
+  )
+))
+```
+
+**server.R**  
+
+```{r, eval=FALSE}
+#server.R
+library(shiny)
+library(ggplot2)
+
+# Define server logic for random distribution application
+shinyServer(function(input, output) {
+  
+  # Reactive expression to generate the requested distribution.
+  # This is called whenever the inputs change. The output
+  # functions defined below then all use the value computed from
+  # this expression
+  population <- reactive({
+    populationSize <- input$popnum
+    population <- switch(input$dist,
+                   norm = rnorm(populationSize), 
+                   pois = rpois(populationSize, 100),
+                   exp = rexp(populationSize, 1/10),
+                   binof = rbinom(populationSize, 1, prob=0.5),
+                   binou = rbinom(populationSize, 1, prob=0.75)
+                   )
+  })
+  
+  # Generate a plot of the data. Also uses the inputs to build
+  # the plot label. Note that the dependencies on both the inputs
+  # and the data reactive expression are both tracked, and
+  # all expressions are called in the sequence implied by the
+  # dependency graph
+  output$plot1 <- renderPlot({
+    populationSize <- input$popnum
+    qplot(population(), geom = 'blank') + 
+      geom_histogram(aes(y = ..density..), 
+                     binwidth=(max(population())-min(population()))/20, 
+                     color='white', fill='lightsteelblue')  +
+      geom_vline(xintercept = mean(population()), colour = 'red', size=.5) +
+      theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+  })
+  
+  output$plot2 <- renderPlot({
+    sampleNum <- input$sampnum; 
+    sampleSize <- input$sampsize;
+    samples <- matrix(data=NA, nrow=sampleNum, ncol=sampleSize)
+    for(i in 1:sampleNum){
+      samples[i,] <- sample(x=population(), size=sampleSize, replace = FALSE)
+    }
+    x_bars <- apply(samples, 1, mean)
+    plot_clt <- qplot(x_bars, geom = 'blank') +  
+      geom_histogram(aes(y = ..density..),  
+                     binwidth = (max(x_bars)-min(x_bars))/20,
+                     colour="white", fill='lightsteelblue') +
+      geom_line(aes(colour = 'Empirical'), stat = 'density', size=.5) +  
+      stat_function(fun=dnorm, 
+                    args=list(mean=mean(population()), sd=sd(population())/sqrt(sampleSize)),
+                    aes(colour = 'Theoretical'), size=.5) +
+      geom_vline(xintercept = mean(x_bars), colour = 'red',size=.5) + 
+      scale_colour_manual(name='', values = c('red', 'blue')) + 
+      theme(legend.position = c(0.85, 0.85)) + xlab("means of samples")
+    print(plot_clt)
+  })
+  
+  # Generate a summary of the data
+  output$summary <- renderPrint({
+    summary(data())
+  })
+  
+  # Generate an HTML table view of the data
+  output$table <- renderTable({
+    data.frame(x=data())
+  })
+  
+})
+
+```
